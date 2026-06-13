@@ -1,6 +1,5 @@
 <template>
   <div class="dashboard-container">
-    <!-- TOP HEADER -->
     <div class="header-section">
       <div>
         <h1 class="page-title">Problem Set</h1>
@@ -55,7 +54,6 @@
       </div>
     </div>
 
-    <!-- MODERN FILTER BAR -->
     <div class="filter-bar">
       <div class="filter-group flex-2">
         <label>SEARCH KEYWORDS</label>
@@ -109,7 +107,6 @@
       </div>
     </div>
 
-    <!-- CLEAN TABLE -->
     <div class="table-container">
       <el-table
         :data="problemSetShow"
@@ -118,19 +115,45 @@
         @sort-change="sortChange"
         :default-sort="{ prop: 'ID', order: 'descending' }"
         :row-class-name="
-          ({ row }) => (solvedProblems[row.ID] ? 'solved-row' : '')
+          ({ row }) => {
+            const status = problemStatus[row.ID];
+            if (status === 'done') return 'done-row';
+            if (status === 'attempting') return 'attempting-row';
+            return '';
+          }
         "
       >
-        <!-- Checkbox Column -->
-        <el-table-column width="50" align="center">
-          <template #header>
-            <el-checkbox disabled />
-          </template>
+        <el-table-column label="STATUS" width="130" align="center">
           <template #default="scope">
-            <el-checkbox
-              :model-value="!!solvedProblems[scope.row.ID]"
-              @change="toggleProblem(scope.row)"
-            />
+            <el-dropdown
+              trigger="click"
+              @command="(cmd: string) => handleStatusChange(scope.row, cmd)"
+              :disabled="!currentUser"
+            >
+              <span
+                class="status-badge"
+                :class="problemStatus[scope.row.ID] || 'unattempted'"
+                @click="!currentUser ? warnLogin() : null"
+              >
+                {{ getStatusLabel(problemStatus[scope.row.ID]) }}
+                <el-icon class="el-icon--right"><arrow-down /></el-icon>
+              </span>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="done">
+                    <span style="color: #16a34a; font-weight: 600">✓ Done</span>
+                  </el-dropdown-item>
+                  <el-dropdown-item command="attempting">
+                    <span style="color: #ca8a04; font-weight: 600"
+                      >✍ Attempting</span
+                    >
+                  </el-dropdown-item>
+                  <el-dropdown-item command="unattempted" divided>
+                    <span style="color: #6b7280">Clear Status</span>
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </el-table-column>
 
@@ -179,7 +202,6 @@
           align="center"
         />
 
-        <!-- RATING COLUMN WITH PROGRESS BAR -->
         <el-table-column
           label="RATING"
           prop="Rating"
@@ -210,7 +232,6 @@
       </el-table>
     </div>
 
-    <!-- PAGINATION (STICKY FOOTER) -->
     <div class="footer-pagination">
       <div
         style="
@@ -252,7 +273,6 @@
       </div>
     </div>
 
-    <!-- Auth Modal -->
     <el-dialog
       v-model="showAuthModal"
       :title="isLogin ? 'Login to Sync' : 'Create Account'"
@@ -328,12 +348,16 @@ interface SortInfo {
   order: string;
 }
 
+type ProblemStatusStr = "done" | "attempting";
+
 const currentUser = ref<User | null>(null);
 const showAuthModal = ref(false);
 const isLogin = ref(true);
 const email = ref("");
 const password = ref("");
-const solvedProblems = ref<Record<string | number, boolean>>({});
+
+// NEW: 3-State Dictionary
+const problemStatus = ref<Record<string | number, ProblemStatusStr>>({});
 
 const getInitials = (userEmail: string | null) => {
   if (!userEmail) return "U";
@@ -345,10 +369,16 @@ const getInitials = (userEmail: string | null) => {
   return namePart.substring(0, 2).toUpperCase();
 };
 
+const getStatusLabel = (status?: ProblemStatusStr) => {
+  if (status === "done") return "Done";
+  if (status === "attempting") return "Attempting";
+  return "Not Started";
+};
+
 const getRatingColor = (rating: number) => {
-  if (rating < 1750) return "#10b981";
-  if (rating < 2000) return "#f59e0b";
-  return "#ef4444";
+  if (rating < 1750) return "#10b981"; // Green
+  if (rating < 2000) return "#f59e0b"; // Orange
+  return "#ef4444"; // Red
 };
 
 const getRatingPercentage = (rating: number) => {
@@ -360,13 +390,30 @@ const getRatingPercentage = (rating: number) => {
   return percentage;
 };
 
+const warnLogin = () => {
+  ElMessage.warning("Login to save progress!");
+};
+
+const handleStatusChange = (row: Problem, command: string) => {
+  if (!currentUser.value) {
+    warnLogin();
+    return;
+  }
+  if (command === "unattempted") {
+    delete problemStatus.value[row.ID];
+  } else {
+    problemStatus.value[row.ID] = command as ProblemStatusStr;
+  }
+  syncToCloud();
+};
+
 const syncToCloud = async () => {
   if (!currentUser.value) return;
   try {
     await setDoc(
       doc(db, "users", currentUser.value.uid),
       {
-        solved: solvedProblems.value,
+        solved: problemStatus.value, // Keep key 'solved' for backward DB compatibility
         config: {
           currentPage: currentPage.value,
           pageSize: pageSize.value,
@@ -388,7 +435,19 @@ const loadFromCloud = async (uid: string) => {
     const docSnap = await getDoc(doc(db, "users", uid));
     if (docSnap.exists()) {
       const data = docSnap.data();
-      if (data.solved) solvedProblems.value = data.solved;
+
+      // Backward Compatibility: Migrates old "true" booleans to "done"
+      if (data.solved) {
+        const parsedStatus: Record<string | number, ProblemStatusStr> = {};
+        for (const [key, value] of Object.entries(data.solved)) {
+          if (value === true || value === "done") {
+            parsedStatus[key] = "done";
+          } else if (value === "attempting") {
+            parsedStatus[key] = "attempting";
+          }
+        }
+        problemStatus.value = parsedStatus;
+      }
 
       if (data.config) {
         if (data.config.pageSize) pageSize.value = data.config.pageSize;
@@ -411,16 +470,6 @@ const loadFromCloud = async (uid: string) => {
   }
 };
 
-const toggleProblem = (row: Problem) => {
-  if (!currentUser.value) {
-    ElMessage.warning("Login to save progress!");
-    solvedProblems.value[row.ID] = false;
-    return;
-  }
-  solvedProblems.value[row.ID] = !solvedProblems.value[row.ID];
-  syncToCloud();
-};
-
 const handleAuth = async () => {
   try {
     if (isLogin.value) {
@@ -441,7 +490,7 @@ const handleAuth = async () => {
 
 const handleLogout = async () => {
   await signOut(auth);
-  solvedProblems.value = {};
+  problemStatus.value = {};
   ElMessage.success("Logged out");
 };
 
@@ -640,7 +689,7 @@ function reset() {
   border-radius: 50%;
 }
 
-/* NEW: User Profile Pill Design */
+/* User Profile Pill Design */
 .user-profile {
   display: flex;
   align-items: center;
@@ -791,17 +840,46 @@ function reset() {
   border-radius: 3px;
 }
 
-/* Solved State */
-:deep(.solved-row td.el-table__cell) {
-  background-color: #f8fafc !important;
-  opacity: 0.6;
+/* NEW: 3-State Dynamic Row Colors */
+:deep(.done-row td.el-table__cell) {
+  background-color: #dcfce7 !important; /* Cute Light Green */
 }
-:deep(.solved-row .problem-link) {
+:deep(.done-row .problem-link) {
   text-decoration: line-through;
   color: #9ca3af;
 }
 
-/* NEW: Sticky Footer */
+:deep(.attempting-row td.el-table__cell) {
+  background-color: #fef9c3 !important; /* Cute Light Yellow */
+}
+
+/* Status Badge Styles */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  width: 85px;
+}
+.status-badge.unattempted {
+  background-color: #f3f4f6;
+  color: #6b7280;
+}
+.status-badge.attempting {
+  background-color: #fef08a;
+  color: #ca8a04;
+}
+.status-badge.done {
+  background-color: #bbf7d0;
+  color: #16a34a;
+}
+
+/* Sticky Footer */
 .footer-pagination {
   position: sticky;
   bottom: 0;
