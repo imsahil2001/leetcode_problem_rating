@@ -301,6 +301,7 @@
 </template>
 
 <script lang="ts" setup>
+import problemData from "../../data.json";
 import { reactive, onMounted, ref, watch } from "vue";
 import axios from "axios";
 import { ElMessage } from "element-plus";
@@ -530,8 +531,8 @@ watch(
 
 onMounted(async () => {
   try {
-    const res = await axios.get(url);
-    const problems = res.data;
+    const problems = problemData;
+
     problems.forEach((item: Problem) => {
       item.ProblemHrefZH = "https://leetcode.cn/problems/" + item.TitleSlug;
       item.ProblemHrefEN = "https://leetcode.com/problems/" + item.TitleSlug;

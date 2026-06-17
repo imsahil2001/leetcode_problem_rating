@@ -3,18 +3,17 @@
     "target": "esnext",
     "module": "esnext",
     "strict": true,
+    "ignoreDeprecations": "6.0",
     "jsx": "preserve",
     "moduleResolution": "node",
-    "skipLibCheck": true,
+    "baseUrl": ".",
+    "resolveJsonModule": true,
     "esModuleInterop": true,
+    "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "useDefineForClassFields": true,
     "sourceMap": true,
-    "baseUrl": ".",
-    "types": [
-      "webpack-env"
-    ],
     "paths": {
       "@/*": [
         "src/*"
@@ -31,10 +30,6 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "src/**/*.vue",
-    "tests/**/*.ts",
-    "tests/**/*.tsx"
-  ],
-  "exclude": [
-    "node_modules"
+    "tests/**/*.ts"
   ]
 }
