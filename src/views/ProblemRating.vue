@@ -114,28 +114,21 @@
         class="modern-table"
         @sort-change="sortChange"
         :default-sort="{ prop: 'ID', order: 'descending' }"
-        :row-class-name="
-          ({ row }) => {
-            const status = problemStatus[row.ID];
-            if (status === 'done') return 'done-row';
-            if (status === 'attempting') return 'attempting-row';
-            return '';
-          }
-        "
+        :row-class-name="tableRowClassName"
       >
         <el-table-column label="STATUS" width="130" align="center">
           <template #default="scope">
             <el-dropdown
               trigger="click"
-              @command="(cmd: string) => handleStatusChange(scope.row, cmd)"
+              @command="(cmd) => handleStatusChange(scope.row, String(cmd))"
               :disabled="!currentUser"
             >
               <span
                 class="status-badge"
-                :class="problemStatus[scope.row.ID] || 'unattempted'"
+                :class="getStatusForProblem(scope.row.ID) || 'unattempted'"
                 @click="!currentUser ? warnLogin() : null"
               >
-                {{ getStatusLabel(problemStatus[scope.row.ID]) }}
+                {{ getStatusLabel(getStatusForProblem(scope.row.ID)) }}
                 <el-icon class="el-icon--right"><arrow-down /></el-icon>
               </span>
               <template #dropdown>
@@ -356,9 +349,10 @@ const isLogin = ref(true);
 const email = ref("");
 const password = ref("");
 
-// NEW: 3-State Dictionary
+// Cleaned up dictionary (Checkbox dependency removed)
 const problemStatus = ref<Record<string | number, ProblemStatusStr>>({});
 
+// UI Helper Methods
 const getInitials = (userEmail: string | null) => {
   if (!userEmail) return "U";
   const namePart = userEmail.split("@")[0];
@@ -367,6 +361,10 @@ const getInitials = (userEmail: string | null) => {
     return (splitChars[0][0] + splitChars[1][0]).toUpperCase();
   }
   return namePart.substring(0, 2).toUpperCase();
+};
+
+const getStatusForProblem = (id: number | string) => {
+  return problemStatus.value[id];
 };
 
 const getStatusLabel = (status?: ProblemStatusStr) => {
@@ -388,6 +386,14 @@ const getRatingPercentage = (rating: number) => {
   if (percentage < 5) percentage = 5;
   if (percentage > 100) percentage = 100;
   return percentage;
+};
+
+// Extracted template logic into a method to fix the compilation error
+const tableRowClassName = ({ row }: { row: Problem }) => {
+  const status = problemStatus.value[row.ID];
+  if (status === "done") return "done-row";
+  if (status === "attempting") return "attempting-row";
+  return "";
 };
 
 const warnLogin = () => {
@@ -413,7 +419,7 @@ const syncToCloud = async () => {
     await setDoc(
       doc(db, "users", currentUser.value.uid),
       {
-        solved: problemStatus.value, // Keep key 'solved' for backward DB compatibility
+        solved: problemStatus.value,
         config: {
           currentPage: currentPage.value,
           pageSize: pageSize.value,
@@ -436,7 +442,7 @@ const loadFromCloud = async (uid: string) => {
     if (docSnap.exists()) {
       const data = docSnap.data();
 
-      // Backward Compatibility: Migrates old "true" booleans to "done"
+      // Migrates legacy true/false booleans to "done"
       if (data.solved) {
         const parsedStatus: Record<string | number, ProblemStatusStr> = {};
         for (const [key, value] of Object.entries(data.solved)) {
